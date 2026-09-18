@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Secrets — never commit real credentials
+.env
+
+# Vector store / runtime artifacts (regenerated, not source)
+chroma_db/
+*.jsonl
+*.log
+
+# OS
+.DS_Store
