@@ -32,8 +32,9 @@ Full design rationale, data contracts, and the fail-closed rules this project fo
 ```bash
 git clone <this-repo>
 cd rag-blast-radius
-cp .env.example .env   # add your own ANTHROPIC_API_KEY
-pip install -r requirements.txt
+cp .env.example .env   # add your own DEEPSEEK_API_KEY
+uv venv
+uv pip install -r requirements.txt
 python run_all.py
 ```
 

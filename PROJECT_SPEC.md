@@ -72,7 +72,7 @@
 
 ### 3.3 如何让这个 schema 真正可靠
 
-用 Anthropic 官方 Python SDK（`anthropic` 包），通过 **`tool_choice` 强制指定工具** 拿结构化输出：把上面的 schema 定义成一个 tool 的 `input_schema`，调用时设 `tool_choice={"type": "tool", "name": "<对应tool名>"}`，强制模型必须调用这个工具，返回结果从 `tool_use` block 的 `input` 字段取。不要用 prefill 的方式凑 JSON——这个技巧在近期模型上已经不被支持。也不要只在提示词里要求"请输出JSON"然后自己裸解析。
+用官方 `openai` Python 包（`base_url` 指向 `https://api.deepseek.com`，Deepseek 走 OpenAI 兼容接口），通过 **`tool_choice` 强制指定工具** 拿结构化输出：把上面的 schema 定义成一个 tool 的 `parameters`，调用时设 `tool_choice={"type": "function", "function": {"name": "<对应tool名>"}}`，强制模型必须调用这个工具，返回结果从 `tool_calls[0].function.arguments` 字段取（是一个 JSON 字符串，需要 `json.loads`）。不要只在提示词里要求"请输出JSON"然后自己裸解析原始文本。
 
 失败处理（fail-closed 的具体落实）：一次调用没能产出合法 schema，把错误信息喂回去重试一次；重试后仍然失败，直接返回"没有找到相关信息"，绝不允许"格式错了就把原始生成内容直接返回"。
 
@@ -138,10 +138,11 @@
 
 ## 6. 技术栈
 
-- 语言：Python
-- LLM：Claude，用官方 `anthropic` 包调用
-  - API key 通过环境变量 `ANTHROPIC_API_KEY` 提供，代码里只引用这个变量名，永远不要把真实 key 写进任何文件或日志
-  - 生成 Agent 默认用 `claude-haiku-4-5-20251001`；如果发现回答质量不够，换成 `claude-sonnet-5` 不需要改架构，只改一个字符串
+- 语言：Python 3.12
+- 包管理器：uv
+- LLM：Deepseek，走 OpenAI 兼容接口，用官方 `openai` 包调用（`base_url="https://api.deepseek.com"`）
+  - API key 通过环境变量 `DEEPSEEK_API_KEY` 提供，代码里只引用这个变量名，永远不要把真实 key 写进任何文件或日志
+  - 生成 Agent 默认用 `deepseek-chat`；如果发现回答质量不够，换成 `deepseek-reasoner`，不需要改架构，只改一个字符串
   - 结构化输出的具体做法见第 3.3 节
 - 向量存储：轻量嵌入式方案（如 chromadb），暂不需要生产级向量数据库服务
 - 可观测性：JSON Lines 日志 + 自制打印脚本，暂不需要接入 OpenTelemetry
