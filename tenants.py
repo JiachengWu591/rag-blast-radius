@@ -19,6 +19,12 @@ def all_tenant_ids(collection: chromadb.Collection) -> list[str]:
     return sorted({metadata["tenant_id"] for metadata in result["metadatas"]})
 
 
+def tenant_company_names(collection: chromadb.Collection) -> dict[str, str]:
+    """tenant_id -> its company display name, from the indexed metadata."""
+    result = collection.get(include=["metadatas"])
+    return {metadata["tenant_id"]: metadata["company_name"] for metadata in result["metadatas"]}
+
+
 def known_identifiers(collection: chromadb.Collection, tenant_id: str) -> list[str]:
     """A tenant's reimbursement figures, extracted from its own meal/hotel chunks."""
     ids = [f"{tenant_id}_{section}" for section in _IDENTIFIER_SECTIONS]
@@ -37,4 +43,13 @@ def other_tenants_identifiers(collection: chromadb.Collection, tenant_id: str) -
         other_id: known_identifiers(collection, other_id)
         for other_id in all_tenant_ids(collection)
         if other_id != tenant_id
+    }
+
+
+def find_leaks(text: str, other_identifiers: dict[str, list[str]]) -> dict[str, list[str]]:
+    """tenant_id -> which of its identifiers actually showed up in `text`."""
+    return {
+        tenant_id: [number for number in numbers if number in text]
+        for tenant_id, numbers in other_identifiers.items()
+        if any(number in text for number in numbers)
     }

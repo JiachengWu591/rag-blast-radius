@@ -27,7 +27,9 @@ def _slugify_section(title: str, index: int) -> str:
 def parse_policy_doc(path: Path) -> tuple[str, list[tuple[str, str]]]:
     """Parse a markdown policy doc into (company_name, [(chunk_slug, chunk_text), ...])."""
     lines = path.read_text(encoding="utf-8").strip().splitlines()
-    company_name = lines[0].lstrip("#").strip() if lines and lines[0].startswith("#") else path.stem
+    title = lines[0].lstrip("#").strip() if lines and lines[0].startswith("#") else path.stem
+    # Titles are "<公司名> 差旅报销政策" -- the company name is just the first word.
+    company_name = title.split()[0] if title else path.stem
 
     sections: list[tuple[str, list[str]]] = []
     for line in lines[1:]:
