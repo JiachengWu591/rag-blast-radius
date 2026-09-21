@@ -9,6 +9,7 @@ chunks never exists; it is not filtered out afterwards. Generation uses the
 
 import json
 import os
+from collections.abc import Callable
 
 import chromadb
 from dotenv import load_dotenv
@@ -118,9 +119,17 @@ def answer(
     tenant_id: str,
     other_identifiers: dict[str, list[str]],
     top_k: int = 5,
+    search: Callable[..., list[dict]] = isolated_search,
 ) -> tuple[str, list[dict], str | None]:
-    """Return (final_answer_text, retrieved_chunks, validation_failure)."""
-    chunks = isolated_search(collection, query, tenant_id, top_k=top_k)
+    """Return (final_answer_text, retrieved_chunks, validation_failure).
+
+    `search` defaults to isolated_search (the real fixed-version retrieval).
+    Phase 3's red-team drill passes in a stand-in that ignores the tenant
+    filter, to test whether validation still catches the leak when
+    retrieval isolation itself has failed -- generation and validation
+    below are otherwise untouched.
+    """
+    chunks = search(collection, query, tenant_id, top_k=top_k)
     if not chunks:
         # 检索结果为空时直接短路返回 fail-closed 文案,不调用模型——不给它任何
         # "自己想办法回答"的机会,也就没有"放宽过滤去补答案"的空间。
