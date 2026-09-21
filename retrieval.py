@@ -8,9 +8,7 @@ constructed, per the project's core design point (see PROJECT_SPEC.md §2).
 import chromadb
 
 
-def naive_search(collection: chromadb.Collection, query: str, top_k: int = 5) -> list[dict]:
-    """Phase 1 baseline: search the whole index, with no tenant constraint."""
-    result = collection.query(query_texts=[query], n_results=top_k, include=["documents", "metadatas"])
+def _to_chunks(result: dict) -> list[dict]:
     return [
         {
             "id": chunk_id,
@@ -21,3 +19,22 @@ def naive_search(collection: chromadb.Collection, query: str, top_k: int = 5) ->
         }
         for chunk_id, document, metadata in zip(result["ids"][0], result["documents"][0], result["metadatas"][0])
     ]
+
+
+def naive_search(collection: chromadb.Collection, query: str, top_k: int = 5) -> list[dict]:
+    """Phase 1 baseline: search the whole index, with no tenant constraint."""
+    result = collection.query(query_texts=[query], n_results=top_k, include=["documents", "metadatas"])
+    return _to_chunks(result)
+
+
+def isolated_search(collection: chromadb.Collection, query: str, tenant_id: str, top_k: int = 5) -> list[dict]:
+    """Phase 2 fixed version: the tenant constraint is part of the query
+    request itself (`where`) — chunks outside the tenant never enter the
+    candidate pool; they are not filtered out after the fact."""
+    result = collection.query(
+        query_texts=[query],
+        n_results=top_k,
+        where={"tenant_id": tenant_id},
+        include=["documents", "metadatas"],
+    )
+    return _to_chunks(result)
