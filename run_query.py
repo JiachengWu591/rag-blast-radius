@@ -28,10 +28,13 @@ def run(version: str, tenant_id: str, query: str) -> dict:
     if version == "baseline":
         text, chunks = baseline_answer(collection, query)
         validation_result = "not_applicable"
+        reasoning, cited_chunk_ids = None, None
     elif version == "fixed":
         other_identifiers = other_tenants_identifiers(collection, tenant_id)
-        text, chunks, failure = fixed_answer(collection, query, tenant_id, other_identifiers)
-        validation_result = "pass" if failure is None else f"blocked:{failure}"
+        result = fixed_answer(collection, query, tenant_id, other_identifiers)
+        text, chunks = result.text, result.chunks
+        validation_result = "pass" if result.validation_failure is None else f"blocked:{result.validation_failure}"
+        reasoning, cited_chunk_ids = result.reasoning, result.cited_chunk_ids
     else:
         raise ValueError(f"unknown version: {version!r}")
 
@@ -42,6 +45,8 @@ def run(version: str, tenant_id: str, query: str) -> dict:
         chunks=chunks,
         validation_result=validation_result,
         answer_text=text,
+        reasoning=reasoning,
+        cited_chunk_ids=cited_chunk_ids,
     )
 
 
@@ -58,18 +63,18 @@ def run_redteam_drill(tenant_id: str, query: str, max_attempts: int = 3) -> dict
 
     entry: dict | None = None
     for _ in range(max_attempts):
-        text, chunks, failure = fixed_answer(
-            collection, query, tenant_id, other_identifiers, search=_naive_ignoring_tenant_filter
-        )
-        validation_result = "pass" if failure is None else f"blocked:{failure}"
+        result = fixed_answer(collection, query, tenant_id, other_identifiers, search=_naive_ignoring_tenant_filter)
+        validation_result = "pass" if result.validation_failure is None else f"blocked:{result.validation_failure}"
         entry = log_query(
             version="fixed(模拟检索隔离失效)",
             tenant_id=tenant_id,
             query=query,
-            chunks=chunks,
+            chunks=result.chunks,
             validation_result=validation_result,
-            answer_text=text,
+            answer_text=result.text,
+            reasoning=result.reasoning,
+            cited_chunk_ids=result.cited_chunk_ids,
         )
-        if failure is not None:
+        if result.validation_failure is not None:
             return entry
     return entry

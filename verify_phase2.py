@@ -7,7 +7,7 @@
 """
 
 from baseline import answer as baseline_answer
-from fixed import FAIL_CLOSED_MESSAGE, answer as fixed_answer
+from fixed import FAIL_CLOSED_MESSAGE, FixedAnswer, answer as fixed_answer
 from ingest import build_index
 from tenants import find_leaks, known_identifiers, other_tenants_identifiers
 
@@ -29,37 +29,39 @@ def main() -> None:
     print(f"其它租户的标识符: {other_identifiers}\n")
 
     failures: list[str] = []
-    results: dict[str, tuple[str, list[dict], str | None]] = {}
+    results: dict[str, FixedAnswer] = {}
 
     for label, query in SCENARIOS.items():
         result = fixed_answer(collection, query, ASKING_TENANT, other_identifiers)
         results[label] = result
-        text, chunks, validation_failure = result
-        retrieved_tenants = sorted({chunk["tenant_id"] for chunk in chunks})
-        leaks = find_leaks(text, other_identifiers)
+        retrieved_tenants = sorted({chunk["tenant_id"] for chunk in result.chunks})
+        leaks = find_leaks(result.text, other_identifiers)
 
         print(f"场景 {label}")
         print(f"  问题: {query}")
         print(f"  检索到的租户: {retrieved_tenants}")
-        print(f"  校验结果: {'通过' if validation_failure is None else f'在 {validation_failure} 上失败'}")
-        print(f"  回答: {text}")
+        print(f"  校验结果: {'通过' if result.validation_failure is None else f'在 {result.validation_failure} 上失败'}")
+        print(f"  reasoning: {result.reasoning}")
+        print(f"  回答: {result.text}")
         print(f"  泄露的其它租户数字: {leaks or '(未检测到)'}\n")
 
         if retrieved_tenants and retrieved_tenants != [ASKING_TENANT]:
             failures.append(f"场景 {label}: 检索结果混入了其它租户 ({retrieved_tenants})")
         if leaks:
             failures.append(f"场景 {label}: 回答里出现了其它租户的数字 ({leaks})")
+        if not result.reasoning:
+            failures.append(f"场景 {label}: 模型没有产出 reasoning 字段")
 
     # 对照场景:复用场景 A 的结果(tenant_a 自己确实有答案的问题),跟 baseline 对比。
     scenario_a_label = "A (自然碰撞)"
-    fixed_text, _, fixed_failure = results[scenario_a_label]
+    fixed_result = results[scenario_a_label]
     baseline_text, _ = baseline_answer(collection, SCENARIOS[scenario_a_label])
 
-    fixed_has_own_info = any(number in fixed_text for number in own_identifiers)
+    fixed_has_own_info = any(number in fixed_result.text for number in own_identifiers)
     baseline_has_own_info = any(number in baseline_text for number in own_identifiers)
 
     print("对照场景(复用场景 A 的结果,tenant_a 自己确实有答案):")
-    print(f"  修复版校验结果: {'通过' if fixed_failure is None else fixed_failure}")
+    print(f"  修复版校验结果: {'通过' if fixed_result.validation_failure is None else fixed_result.validation_failure}")
     print(f"  修复版回答包含 tenant_a 自己的数字: {fixed_has_own_info}")
     print(f"  baseline 回答包含 tenant_a 自己的数字: {baseline_has_own_info}\n")
 
@@ -67,18 +69,16 @@ def main() -> None:
         failures.append("对照场景: 修复版没有给出 tenant_a 自己的答案,可用性被牺牲了")
 
     # 场景 C: 空检索结果,确认诚实 fail-closed,不放宽过滤补答案。
-    empty_text, empty_chunks, empty_failure = fixed_answer(
-        collection, "我们公司出差住宿标准是什么?", UNKNOWN_TENANT, {}
-    )
+    empty_result = fixed_answer(collection, "我们公司出差住宿标准是什么?", UNKNOWN_TENANT, {})
     print(f"场景 C (空检索结果): tenant_id={UNKNOWN_TENANT}")
-    print(f"  检索到的 chunk 数量: {len(empty_chunks)}")
-    print(f"  校验结果: {empty_failure}")
-    print(f"  回答: {empty_text}\n")
+    print(f"  检索到的 chunk 数量: {len(empty_result.chunks)}")
+    print(f"  校验结果: {empty_result.validation_failure}")
+    print(f"  回答: {empty_result.text}\n")
 
-    if empty_chunks:
+    if empty_result.chunks:
         failures.append("场景 C: 未知租户竟然检索到了 chunk,说明过滤条件没有生效")
-    if empty_text != FAIL_CLOSED_MESSAGE:
-        failures.append(f"场景 C: 空结果时没有返回标准的 fail-closed 文案,实际返回: {empty_text!r}")
+    if empty_result.text != FAIL_CLOSED_MESSAGE:
+        failures.append(f"场景 C: 空结果时没有返回标准的 fail-closed 文案,实际返回: {empty_result.text!r}")
 
     if failures:
         print("FAIL")

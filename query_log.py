@@ -18,7 +18,12 @@ def log_query(
     chunks: list[dict],
     validation_result: str,
     answer_text: str,
+    reasoning: str | None = None,
+    cited_chunk_ids: list[str] | None = None,
 ) -> dict:
+    # Keys mirror the 3.2 schema's declared property order (reasoning, answer,
+    # cited_chunk_ids) -- the same order the model was forced to generate them
+    # in -- so the log makes that ordering visible, not just the schema.
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "version": version,
@@ -26,7 +31,9 @@ def log_query(
         "query": query,
         "retrieved_chunks": [{"chunk_id": chunk["id"], "tenant_id": chunk["tenant_id"]} for chunk in chunks],
         "validation_result": validation_result,
+        "reasoning": reasoning,
         "answer": answer_text,
+        "cited_chunk_ids": cited_chunk_ids,
     }
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with LOG_PATH.open("a", encoding="utf-8") as log_file:
@@ -47,7 +54,11 @@ def render_entry(entry: dict) -> str:
     else:
         lines.append("    (无)")
     lines.append(f"  校验结果: {entry['validation_result']}")
+    if entry.get("reasoning") is not None:
+        lines.append(f"  reasoning: {entry['reasoning']}")
     lines.append(f"  回答: {entry['answer']}")
+    if entry.get("cited_chunk_ids") is not None:
+        lines.append(f"  cited_chunk_ids: {entry['cited_chunk_ids']}")
     return "\n".join(lines)
 
 

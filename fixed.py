@@ -10,6 +10,7 @@ chunks never exists; it is not filtered out afterwards. Generation uses the
 import json
 import os
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import chromadb
 from dotenv import load_dotenv
@@ -113,6 +114,17 @@ def _call_model(prompt: str) -> dict | None:
     return None
 
 
+@dataclass
+class FixedAnswer:
+    text: str
+    chunks: list[dict]
+    validation_failure: str | None
+    # 模型的原始结构化输出,校验失败时也保留——用来在日志里确认 reasoning 确实
+    # 先于 answer/cited_chunk_ids 生成,以及校验失败时具体是哪个引用/内容触发的。
+    reasoning: str | None
+    cited_chunk_ids: list[str] | None
+
+
 def answer(
     collection: chromadb.Collection,
     query: str,
@@ -120,10 +132,9 @@ def answer(
     other_identifiers: dict[str, list[str]],
     top_k: int = 5,
     search: Callable[..., list[dict]] = isolated_search,
-) -> tuple[str, list[dict], str | None]:
-    """Return (final_answer_text, retrieved_chunks, validation_failure).
+) -> FixedAnswer:
+    """`search` defaults to isolated_search (the real fixed-version retrieval).
 
-    `search` defaults to isolated_search (the real fixed-version retrieval).
     Phase 3's red-team drill passes in a stand-in that ignores the tenant
     filter, to test whether validation still catches the leak when
     retrieval isolation itself has failed -- generation and validation
@@ -133,24 +144,27 @@ def answer(
     if not chunks:
         # 检索结果为空时直接短路返回 fail-closed 文案,不调用模型——不给它任何
         # "自己想办法回答"的机会,也就没有"放宽过滤去补答案"的空间。
-        return FAIL_CLOSED_MESSAGE, chunks, "empty_retrieval"
+        return FixedAnswer(FAIL_CLOSED_MESSAGE, chunks, "empty_retrieval", None, None)
 
     prompt = _PROMPT_TEMPLATE.format(context=_build_context(chunks), query=query)
     parsed = _call_model(prompt)
     if parsed is None:
-        return FAIL_CLOSED_MESSAGE, chunks, "schema_generation_failed"
+        return FixedAnswer(FAIL_CLOSED_MESSAGE, chunks, "schema_generation_failed", None, None)
+
+    reasoning = parsed["reasoning"]
+    cited_chunk_ids = parsed["cited_chunk_ids"]
 
     failure = validate(
-        cited_chunk_ids=parsed["cited_chunk_ids"],
+        cited_chunk_ids=cited_chunk_ids,
         retrieved_chunks=chunks,
         answer_text=parsed["answer"],
         tenant_id=tenant_id,
         other_identifiers=other_identifiers,
     )
     if failure is not None:
-        return FAIL_CLOSED_MESSAGE, chunks, failure
+        return FixedAnswer(FAIL_CLOSED_MESSAGE, chunks, failure, reasoning, cited_chunk_ids)
 
-    return parsed["answer"], chunks, None
+    return FixedAnswer(parsed["answer"], chunks, None, reasoning, cited_chunk_ids)
 
 
 def main() -> None:
@@ -159,14 +173,16 @@ def main() -> None:
     other_identifiers = other_tenants_identifiers(collection, tenant_id)
     query = "我们公司出差,一天餐费最多能报多少?住宿呢?"
 
-    text, chunks, failure = answer(collection, query, tenant_id, other_identifiers)
+    result = answer(collection, query, tenant_id, other_identifiers)
 
     print(f"Query: {query} (tenant={tenant_id})\n")
     print("Retrieved chunks:")
-    for chunk in chunks:
+    for chunk in result.chunks:
         print(f"  {chunk['id']:<20} tenant_id={chunk['tenant_id']}")
-    print(f"\nValidation failure: {failure}")
-    print(f"Answer:\n{text}")
+    print(f"\nReasoning: {result.reasoning}")
+    print(f"Cited chunk ids: {result.cited_chunk_ids}")
+    print(f"Validation failure: {result.validation_failure}")
+    print(f"Answer:\n{result.text}")
 
 
 if __name__ == "__main__":
